@@ -27,6 +27,26 @@ async function collect() {
   return res.json();
 }
 
+// 연속성(§한계1): 가장 최근 전일 브리핑에서 범주형 상태만 추출.
+// 원시 소수값은 넣지 않는다 → guard 숫자 대조에 새 숫자 유입 없음.
+function loadPrev(currentDate) {
+  if (!fs.existsSync(BRIEFS_DIR)) return null;
+  const files = fs.readdirSync(BRIEFS_DIR)
+    .filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f) && f < `${currentDate}.json`)
+    .sort();
+  if (!files.length) return null;
+  const prev = JSON.parse(fs.readFileSync(path.join(BRIEFS_DIR, files[files.length - 1]), 'utf8'));
+  const s = prev.skeleton || {};
+  return {
+    date: prev.date,
+    risk: s.risk,
+    verdict: prev.verdict || s.verdict,
+    passCount: s.passCount,
+    btc: s.btc ? { kobeDir: s.btc.kobeDir, cvdDir: s.btc.cvdDir } : null,
+    eth: s.eth ? { kobeDir: s.eth.kobeDir, cvdDir: s.eth.cvdDir } : null,
+  };
+}
+
 // ③④ prose + guard: LLM 시도 → 실패 시 템플릿 폴백
 async function proseWithGuard(skeleton) {
   try {
@@ -81,6 +101,7 @@ function archive(skeleton, proseResult) {
 async function run() {
   const state = await collect();
   const skeleton = buildSkeleton(state);        // ② ★verdict·사실 확정
+  skeleton.prev = loadPrev(skeleton.date);      // 연속성 주입 (없으면 null)
   const proseResult = await proseWithGuard(skeleton);
   const file = archive(skeleton, proseResult);
   console.log(`[brief] ${skeleton.date} verdict=${skeleton.verdict} source=${proseResult.source} → ${file}`);
@@ -113,4 +134,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { collect, proseWithGuard, archive, run, reviewPass };
+module.exports = { collect, loadPrev, proseWithGuard, archive, run, reviewPass };
